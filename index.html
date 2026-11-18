@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>SCATTER</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:#05070f;color:#eaf6ff;
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;padding:16px 20px;z-index:5;pointer-events:none;
+       display:flex;justify-content:space-between;align-items:flex-start}
+  .stat{display:flex;flex-direction:column;gap:3px;line-height:1}
+  .stat span{font-size:10px;letter-spacing:.22em;color:#6d84a8;font-weight:700}
+  .stat b{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums}
+  .stat.center{align-items:center}
+  .stat.right{align-items:flex-end}
+  #bar{position:fixed;left:0;top:0;height:3px;width:100%;background:rgba(255,255,255,.06);z-index:6}
+  #bar i{display:block;height:100%;width:100%;
+    background:linear-gradient(90deg,#35e0ff,#7b5cff 60%,#ff3ea5);
+    box-shadow:0 0 14px #35e0ff;transition:width .08s linear}
+  #streak{position:fixed;left:50%;top:78px;transform:translateX(-50%);
+    font-weight:900;font-size:22px;letter-spacing:.05em;color:#ffd166;
+    text-shadow:0 0 22px rgba(255,209,102,.85);opacity:0;z-index:5;pointer-events:none}
+
+  /* ---------- Screens ---------- */
+  .screen{position:fixed;inset:0;z-index:10;display:grid;place-items:center;text-align:center;padding:24px;
+    background:radial-gradient(circle at 50% 45%,rgba(10,16,32,.70),rgba(3,5,12,.95));
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);animation:fade .25s ease}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .hidden{display:none !important}
+  h1{font-size:clamp(44px,13vw,96px);font-weight:900;letter-spacing:.16em;margin-left:.16em;
+    background:linear-gradient(180deg,#eafcff,#35e0ff 55%,#7b5cff);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 0 26px rgba(53,224,255,.45))}
+  h2{font-size:clamp(26px,7vw,44px);font-weight:900;letter-spacing:.14em;color:#ff5c7a;
+    text-shadow:0 0 26px rgba(255,92,122,.55)}
+  .tag{margin-top:14px;font-size:13px;line-height:1.9;letter-spacing:.08em;color:#8fa6c6;max-width:420px}
+  .tag b{color:#35e0ff}
+  .big{margin:26px 0 4px;font-size:clamp(48px,14vw,84px);font-weight:900;
+    font-variant-numeric:tabular-nums;
+    background:linear-gradient(180deg,#fff,#35e0ff);-webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 0 24px rgba(53,224,255,.4))}
+  .lbl{font-size:11px;letter-spacing:.28em;color:#6d84a8;font-weight:700}
+  .btn{margin-top:30px;padding:15px 44px;border-radius:999px;cursor:pointer;
+    border:1px solid rgba(53,224,255,.55);color:#dffaff;font-weight:800;font-size:14px;letter-spacing:.2em;
+    background:linear-gradient(180deg,rgba(53,224,255,.20),rgba(53,224,255,.05));
+    box-shadow:0 0 26px rgba(53,224,255,.25),inset 0 0 22px rgba(53,224,255,.12);
+    transition:transform .16s, box-shadow .16s}
+  .btn:hover{transform:translateY(-2px);box-shadow:0 0 40px rgba(53,224,255,.55),inset 0 0 22px rgba(53,224,255,.2)}
+  .btn:active{transform:scale(.96)}
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+<div id="bar"><i></i></div>
+
+<div id="hud" class="hidden">
+  <div class="stat"><span>SCORE</span><b id="score">0</b></div>
+  <div class="stat center"><span>TIME</span><b id="time">60</b></div>
+  <div class="stat right"><span>BEST</span><b id="best">0</b></div>
+</div>
+<div id="streak"></div>
+
+<div id="start" class="screen">
+  <div>
+    <h1>SCATTER</h1>
+    <p class="tag">
+      Click the orbs to <b>split</b> them.<br>
+      Smaller orbs = <b>more points</b>.<br>
+      Hit fast to build a <b>chain multiplier</b>.
+    </p>
+    <button class="btn" id="playBtn">PLAY</button>
+  </div>
+</div>
+
+<div id="over" class="screen hidden">
+  <div>
+    <h2>TIME'S UP</h2>
+    <div class="lbl" style="margin-top:24px">SCORE</div>
+    <div class="big" id="finalScore">0</div>
+    <div class="lbl" style="margin-top:8px">BEST <span id="finalBest" style="color:#ffd166">0</span></div>
+    <button class="btn" id="againBtn">PLAY AGAIN</button>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ===================== Setup ===================== */
+const canvas = document.getElementById('game');
+const ctx    = canvas.getContext('2d', { alpha: false });
+
+const els = {
+  score: document.getElementById('score'),
+  time:  document.getElementById('time'),
+  best:  document.getElementById('best'),
+  bar:   document.querySelector('#bar i'),
+  streak:document.getElementById('streak'),
+  hud:   document.getElementById('hud'),
+  start: document.getElementById('start'),
+  over:  document.getElementById('over'),
+  finalScore: document.getElementById('finalScore'),
+  finalBest:  document.getElementById('finalBest'),
+  playBtn:  document.getElementById('playBtn'),
+  againBtn: document.getElementById('againBtn'),
+};
+
+const GAME_TIME = 60;
+const MAX_BALLS = 42;
+const MIN_R     = 7.5;
+const SPLIT     = 0.72;
+
+let W = 0, H = 0, DPR = 1, bgGrad = null;
+
+const G = {
+  running: false,
+  score: 0,
+  best: Number(localStorage.getItem('scatter.best') || 0),
+  time: GAME_TIME,
+  streak: 0,
+  streakTimer: 0,
+  shake: 0,
+  spawnTimer: 0,
+  balls: [],
+  particles: [],
+  texts: [],
+};
+
+els.best.textContent = G.best;
+
+/* ===================== Helpers ===================== */
+const rand  = (a, b) => a + Math.random() * (b - a);
+const TAU   = Math.PI * 2;
+const mult  = () => 1 + Math.min(Math.max(G.streak - 1, 0), 10) * 0.2;
+
+/* ===================== Canvas resize ===================== */
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width  = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  bgGrad = ctx.createRadialGradient(W / 2, H * 0.42, 0, W / 2, H * 0.42, Math.max(W, H) * 0.85);
+  bgGrad.addColorStop(0, '#0d1730');
+  bgGrad.addColorStop(0.55, '#070b18');
+  bgGrad.addColorStop(1, '#03050c');
+
+  // keep balls inside after a resize
+  for (const b of G.balls) {
+    b.x = Math.min(Math.max(b.x, b.r), W - b.r);
+    b.y = Math.min(Math.max(b.y, b.r), H - b.r);
+  }
+}
+window.addEventListener('resize', resize);
+
+/* ===================== Audio ===================== */
+let actx = null;
+function audio() {
+  if (!actx) {
+    try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+  }
+  if (actx.state === 'suspended') actx.resume();
+  return actx;
+}
+function tone(freq, dur = 0.09, type = 'sine', vol = 0.10) {
+  const a = audio();
+  if (!a) return;
+  const t = a.currentTime;
+  const o = a.createOscillator();
+  const g = a.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(60, freq * 0.55), t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(a.destination);
+  o.start(t);
+  o.stop(t + dur + 0.03);
+}
+
+/* ===================== Entities ===================== */
+function addBall(x, y, r, hue, vx, vy) {
+  if (vx === undefined) {
+    const a = Math.random() * TAU;
+    const sp = Math.min(110 + Math.max(0, 30 - r) * 4.5, 380);
+    vx = Math.cos(a) * sp;
+    vy = Math.sin(a) * sp;
+  }
+  G.balls.push({
+    x, y, r,
+    vx: Math.min(Math.abs(vx), 520) * Math.sign(vx),
+    vy: Math.min(Math.abs(vy), 520) * Math.sign(vy),
+    hue: hue === undefined ? Math.random() * 360 : hue,
+  });
+}
+
+function spawnRandom(r) {
+  for (let i = 0; i < 40; i++) {
+    const x = rand(r + 12, Math.max(r + 13, W - r - 12));
+    const y = rand(r + 70, Math.max(r + 71, H - r - 24));
+    if (G.balls.every(b => Math.hypot(b.x - x, b.y - y) > b.r + r + 10)) {
+      addBall(x, y, r);
+      return;
+    }
+  }
+  addBall(rand(r + 12, Math.max(r + 13, W - r - 12)), rand(r + 70, Math.max(r + 71, H - r - 24)), r);
+}
+
+function burst(x, y, hue, count) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * TAU;
+    const sp = rand(60, 340);
+    G.particles.push({
+      x, y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      life: rand(0.30, 0.85),
+      max: 0.85,
+      size: rand(1.4, 4.2),
+      hue: hue + rand(-18, 18),
+    });
+  }
+}
+
+/* ===================== Game flow ===================== */
+function startGame() {
+  audio();
+  G.running = true;
+  G.score = 0;
+  G.time = GAME_TIME;
+  G.streak = 0;
+  G.streakTimer = 0;
+  G.shake = 0;
+  G.spawnTimer = 1.0;
+  G.balls.length = 0;
+  G.particles.length = 0;
+  G.texts.length = 0;
+  lastHud = { score: -1, time: -1, streak: -1, t: -1 };
+
+  els.start.classList.add('hidden');
+  els.over.classList.add('hidden');
+  els.hud.classList.remove('hidden');
+
+  for (let i = 0; i < 7; i++) spawnRandom(rand(22, 34));
+  updateHud();
+}
+
+function endGame() {
+  G.running = false;
+  for (const b of G.balls) burst(b.x, b.y, b.hue, 10 + Math.min(16, b.r | 0));
+  G.balls.length = 0;
+  G.shake = 16;
+
+  if (G.score > G.best) {
+    G.best = G.score;
+    localStorage.setItem('scatter.best', String(G.best));
+  }
+  els.best.textContent = G.best;
+  els.finalScore.textContent = G.score;
+  els.finalBest.textContent = G.best;
+  els.over.classList.remove('hidden');
+
+  tone(220, 0.3, 'sawtooth', 0.08);
+  setTimeout(() => tone(160, 0.45, 'sawtooth', 0.07), 130);
+}
+
+/* ===================== Hitting ===================== */
+function tryHit(x, y) {
+  for (let i = G.balls.length - 1; i >= 0; i--) {
+    const b = G.balls[i];
+    const dx = x - b.x, dy = y - b.y;
+    const rr = b.r + 9;                 // a little forgiveness
+    if (dx * dx + dy * dy <= rr * rr) { hitBall(i); return true; }
+  }
+  return false;
+}
+
+function hitBall(i) {
+  const b = G.balls[i];
+  G.balls.splice(i, 1);
+
+  // chain
+  G.streak = G.streakTimer > 0 ? G.streak + 1 : 1;
+  G.streakTimer = 1.5;
+
+  const base   = Math.round(120 / b.r) + 2;
+  const gained = Math.round(base * mult());
+  G.score += gained;
+
+  // fx
+  burst(b.x, b.y, b.hue, 12 + Math.min(14, b.r | 0));
+  G.texts.push({ x: b.x, y: b.y, vy: -62, life: 0.9, max: 0.9, text: '+' + gained, hue: b.hue });
+  G.shake = Math.min(G.shake + 2.5 + b.r * 0.12, 14);
+
+  tone(940 - b.r * 20, 0.08, 'triangle', 0.10);
+
+  // split or pop
+  const nr = b.r * SPLIT;
+  if (nr >= MIN_R && G.balls.length < MAX_BALLS) {
+    const ang = Math.atan2(b.vy, b.vx);
+    const sp  = Math.min(Math.hypot(b.vx, b.vy) * 1.14 + 12, 470);
+    for (const s of [-1, 1]) {
+      const a = ang + s * rand(0.55, 1.15);
+      addBall(
+        b.x + Math.cos(a) * nr * 0.6,
+        b.y + Math.sin(a) * nr * 0.6,
+        nr,
+        (b.hue + rand(-32, 32) + 360) % 360,
+        Math.cos(a) * sp,
+        Math.sin(a) * sp
+      );
+    }
+  } else {
+    // final pop — bonus particles
+    burst(b.x, b.y, b.hue, 10);
+    tone(1250, 0.10, 'square', 0.06);
+  }
+}
+
+/* ===================== Input ===================== */
+canvas.addEventListener('pointerdown', (e) => {
+  if (!G.running) return;
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const x = e.clientX - r.left;
+  const y = e.clientY - r.top;
+  if (!tryHit(x, y)) {
+    G.streak = 0;
+    G.streakTimer = 0;
+  }
+}, { passive: false });
+
+els.playBtn.addEventListener('click', startGame);
+els.againBtn.addEventListener('click', startGame);
+
+/* ===================== HUD ===================== */
+let lastHud = { score: -1, time: -1, streak: -1 };
+
+function updateHud() {
+  if (G.score !== lastHud.score) {
+    els.score.textContent = G.score;
+    lastHud.score = G.score;
+  }
+  const t = Math.ceil(G.time);
+  if (t !== lastHud.time) {
+    els.time.textContent = t;
+    els.time.style.color = t <= 10 ? '#ff5c7a' : '';
+    lastHud.time = t;
+  }
+  const m = mult();
+  if (m !== lastHud.streak) {
+    els.streak.textContent = m > 1 ? '×' + m.toFixed(1) : '';
+    lastHud.streak = m;
+  }
+  els.streak.style.opacity = m > 1
+    ? (G.streakTimer > 0.35 ? 1 : Math.max(0, G.streakTimer / 0.35))
+    : 0;
+
+  els.bar.style.width = (G.time / GAME_TIME * 100) + '%';
+}
+
+/* ===================== Update ===================== */
+function update(dt) {
+  // --- particles (always animate, even on menus) ---
+  for (let i = G.particles.length - 1; i >= 0; i--) {
+    const p = G.particles[i];
+    p.life -= dt;
+    if (p.life <= 0) { G.particles.splice(i, 1); continue; }
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vx -= p.vx * 2.4 * dt;
+    p.vy -= p.vy * 2.4 * dt;
+    p.vy += 190 * dt;
+  }
+
+  // --- floating score text ---
+  for (let i = G.texts.length - 1; i >= 0; i--) {
+    const t = G.texts[i];
+    t.life -= dt;
+    if (t.life <= 0) { G.texts.splice(i, 1); continue; }
+    t.y += t.vy * dt;
+    t.vy *= 0.96;
+  }
+
+  // --- shake decay ---
+  if (G.shake > 0.05) G.shake *= Math.pow(0.0015, dt);
+  else G.shake = 0;
+
+  if (!G.running) return;
+
+  // --- clock ---
+  G.time -= dt;
+  if (G.time <= 0) { G.time = 0; updateHud(); endGame(); return; }
+
+  // --- chain timer ---
+  if (G.streakTimer > 0) {
+    G.streakTimer = Math.max(0, G.streakTimer - dt);
+    if (G.streakTimer === 0) G.streak = 0;
+  }
+
+  // --- balls ---
+  for (const b of G.balls) {
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+
+    if (b.x - b.r < 0)      { b.x = b.r;     b.vx = Math.abs(b.vx); }
+    if (b.x + b.r > W)      { b.x = W - b.r; b.vx = -Math.abs(b.vx); }
+    if (b.y - b.r < 0)      { b.y = b.r;     b.vy = Math.abs(b.vy); }
+    if (b.y + b.r > H)      { b.y = H - b.r; b.vy = -Math.abs(b.vy); }
+  }
+
+  // --- spawning keeps the arena busy ---
+  G.spawnTimer -= dt;
+  if (G.spawnTimer <= 0 && G.balls.length < 11) {
+    G.spawnTimer = rand(0.9, 1.7);
+    spawnRandom(rand(20, 34));
+  }
+
+  updateHud();
+}
+
+/* ===================== Render ===================== */
+function render() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  // background
+  ctx.fillStyle = bgGrad || '#05070f';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  if (G.shake > 0.1) {
+    ctx.translate(rand(-1, 1) * G.shake, rand(-1, 1) * G.shake);
+  }
+
+  // ---- balls ----
+  for (const b of G.balls) {
+    const g = ctx.createRadialGradient(
+      b.x - b.r * 0.35, b.y - b.r * 0.4, b.r * 0.08,
+      b.x, b.y, b.r
+    );
+    g.addColorStop(0,    `hsl(${b.hue} 100% 82%)`);
+    g.addColorStop(0.55, `hsl(${b.hue} 95% 60%)`);
+    g.addColorStop(1,    `hsl(${b.hue} 90% 40%)`);
+
+    ctx.shadowColor = `hsl(${b.hue} 100% 62%)`;
+    ctx.shadowBlur  = 16;
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, TAU);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.beginPath();
+    ctx.arc(b.x - b.r * 0.32, b.y - b.r * 0.36, b.r * 0.18, 0, TAU);
+    ctx.fill();
+  }
+
+  // ---- particles ----
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of G.particles) {
+    const a = Math.max(0, p.life / p.max);
+    ctx.fillStyle = `hsla(${p.hue} 100% 72% / ${a})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * a + 0.4, 0, TAU);
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // ---- floating score text ----
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (const t of G.texts) {
+    const a = Math.max(0, t.life / t.max);
+    ctx.font = '800 20px ui-sans-serif,system-ui,sans-serif';
+    ctx.fillStyle = `hsla(${t.hue} 100% 78% / ${a})`;
+    ctx.shadowColor = `hsla(${t.hue} 100% 60% / ${a})`;
+    ctx.shadowBlur = 14;
+    ctx.fillText(t.text, t.x, t.y);
+  }
+  ctx.shadowBlur = 0;
+
+  ctx.restore();
+}
+
+/* ===================== Loop ===================== */
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+
+/* ===================== Go ===================== */
+resize();
+updateHud();
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
